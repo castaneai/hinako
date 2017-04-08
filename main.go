@@ -1,13 +1,3 @@
-hinako
-==========
-![](http://blog.otaku-streamers.com/wp-content/uploads/2016/11/b551fd2c1d9f9e87861ca65d_1480138863.png)
-
-Windows API hooking with golang based on [trampoline function](http://jbremer.org/x86-api-hooking-demystified/#ah-trampoline).
-
-## Getting Started
-Hook [MessageBoxW](https://msdn.microsoft.com/en-us/library/windows/desktop/ms645505(v=vs.85).aspx) Sample
-
-```go
 package main
 
 import (
@@ -46,15 +36,3 @@ func WSTRPtr(str string) uintptr {
 	ptr, _ := syscall.UTF16PtrFromString(str)
 	return uintptr(unsafe.Pointer(ptr))
 }
-
-```
-
-
-## Test
-
-```
-$ go test
-```
-
-## Author
-[castaneai](http://castaneai.net)

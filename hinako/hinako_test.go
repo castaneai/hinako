@@ -53,29 +53,3 @@ func toLPCWSTR(str string) uintptr {
 	ptr, _ := syscall.UTF16PtrFromString(str)
 	return uintptr(unsafe.Pointer(ptr))
 }
-
-func TestNewHookByName(t *testing.T) {
-	targetFunc := syscall.NewLazyDLL("user32.dll").NewProc("MessageBoxW")
-	targetFunc.Call(0, toLPCWSTR("MessageBoxW"), toLPCWSTR("MessageBoxW"), 0)
-
-	var originalProc *syscall.Proc
-
-	arch := IA32Arch{}
-	dll := syscall.MustLoadDLL("user32.dll")
-	targetProc := dll.MustFindProc("MessageBoxW")
-
-	hookFunc := syscall.NewCallback(func(a, b, c, d uintptr) uintptr {
-		r, _, _ := originalProc.Call(0, toLPCWSTR("hooked MessageBoxW"), toLPCWSTR("hooked MessageBoxW"), 0)
-		return r
-	})
-
-	hook, err := NewHook(&arch, targetProc, hookFunc)
-	if err != nil {
-		t.Errorf(err.Error())
-	}
-	originalProc = &syscall.Proc{Dll: dll, Name: "MessageBoxW"}
-	val := reflect.Indirect(reflect.ValueOf(originalProc))
-	*(*uintptr)(unsafe.Pointer(val.FieldByName("addr").UnsafeAddr())) = hook.originalFunc
-
-	targetFunc.Call(1, toLPCWSTR("target function"), toLPCWSTR("target function"), 2)
-}

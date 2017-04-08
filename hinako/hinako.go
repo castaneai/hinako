@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"golang.org/x/arch/x86/x86asm"
+	"reflect"
 	"strings"
 	"unsafe"
 )
@@ -182,38 +183,68 @@ func (a *IA32Arch) NewFarJumpAsm(from, to uintptr) []byte {
 }
 
 type Hook struct {
-	trampoline   *VirtualAllocatedMemory
-	patchSize    int
-	originalFunc uintptr
-	hookFunc     uintptr
+	Arch         Arch
+	OriginalProc *syscall.Proc
+	HookFunc     interface{}
+
+	targetProc *syscall.Proc
+	trampoline *VirtualAllocatedMemory
+	patchSize  int
 }
 
 func (h *Hook) Close() {
 	if h.trampoline == nil {
 		return
 	}
+	defer h.trampoline.Close()
+
+	// revert jump patch
 	patch := make([]byte, h.patchSize)
 	err := unsafeReadMemory(h.trampoline.Addr, patch)
 	if err != nil {
 		panic(err)
 	}
-	err = unsafeWriteMemory(h.originalFunc, patch)
+
+	oldProtect, err := changeMemoryProtectLevel(h.targetProc.Addr(), len(patch), syscall.PAGE_EXECUTE_READWRITE)
 	if err != nil {
 		panic(err)
 	}
-	err = h.trampoline.RestoreOriginalProtect()
+
+	err = unsafeWriteMemory(h.targetProc.Addr(), patch)
 	if err != nil {
 		panic(err)
 	}
-	defer h.trampoline.Close()
+
+	_, err = changeMemoryProtectLevel(h.targetProc.Addr(), len(patch), oldProtect)
+	if err != nil {
+		panic(err)
+	}
 }
 
-func NewHook(arch Arch, targetProc *syscall.Proc, hookFunc uintptr) (*Hook, error) {
+func NewHookByName(arch Arch, dllName, funcName string, hookFunc interface{}) (*Hook, error) {
+	dll, err := syscall.LoadDLL(dllName)
+	if err != nil {
+		return nil, err
+	}
+	targetProc, err := dll.FindProc(funcName)
+	if err != nil {
+		return nil, err
+	}
+
+	hook, err := NewHook(arch, targetProc, hookFunc)
+	if err != nil {
+		return nil, err
+	}
+	return hook, nil
+}
+
+func NewHook(arch Arch, targetProc *syscall.Proc, hookFunc interface{}) (*Hook, error) {
 	// todo: already hooked?
-	originalFunc := targetProc.Addr()
+	targetFuncAddr := targetProc.Addr()
+	hookFuncCallbackAddr := syscall.NewCallback(hookFunc)
 
 	originalFuncHead := make([]byte, 20)
-	err := unsafeReadMemory(originalFunc, originalFuncHead)
+	err := unsafeReadMemory(targetFuncAddr, originalFuncHead)
 	if err != nil {
 		return nil, err
 	}
@@ -223,47 +254,45 @@ func NewHook(arch Arch, targetProc *syscall.Proc, hookFunc uintptr) (*Hook, erro
 		return nil, err
 	}
 
-	jumpSize := arch.JumpSize(originalFunc, hookFunc)
+	jumpSize := arch.JumpSize(targetFuncAddr, hookFuncCallbackAddr)
 	patchSize, err := getAsmPatchSize(insts, jumpSize)
 	if err != nil {
 		return nil, err
 	}
 
-	// トランポリン領域の作成（実行可能領域）
+	// allocate trampoline buffer
 	tramp, err := NewVirtualAllocatedMemory(arch.MaxTrampolineSize(), syscall.PAGE_EXECUTE_READWRITE)
 	if err != nil {
 		return nil, err
 	}
 
-	// 元関数のpatch部分をトランポリンに退避
+	// copy head of original function to trampoline
 	_, err = tramp.Write(originalFuncHead[:patchSize])
 	if err != nil {
 		return nil, err
 	}
 
-	// トランポリンに元関数へのjumpを追加
-	jmp := arch.NewJumpAsm(tramp.Addr+uintptr(patchSize), originalFunc+uintptr(patchSize))
+	// add jump opcode to tail of trampoline
+	jmp := arch.NewJumpAsm(tramp.Addr+uintptr(patchSize), targetFuncAddr+uintptr(patchSize))
 
 	_, err = tramp.WriteAt(jmp, int64(patchSize))
 	if err != nil {
 		return nil, err
 	}
 
-	// 元関数のパッチ領域を書き込み可能にする
-	oldProtect, err := changeMemoryProtectLevel(originalFunc, int(arch.MaxTrampolineSize()), syscall.PAGE_EXECUTE_READWRITE)
+	oldProtect, err := changeMemoryProtectLevel(targetFuncAddr, int(arch.MaxTrampolineSize()), syscall.PAGE_EXECUTE_READWRITE)
 	if err != nil {
 		return nil, err
 	}
 
-	// 元関数の先頭をフック関数へのjumpに書き換え（フック作動開始！）
-	hookJmp := arch.NewJumpAsm(originalFunc, hookFunc)
-	err = unsafeWriteMemory(originalFunc, hookJmp)
+	// overwrite head of target func with jumping for hook func
+	hookJmp := arch.NewJumpAsm(targetFuncAddr, hookFuncCallbackAddr)
+	err = unsafeWriteMemory(targetFuncAddr, hookJmp)
 	if err != nil {
 		return nil, err
 	}
 
-	// 書き込み可能にしたのを戻す
-	_, err = changeMemoryProtectLevel(originalFunc, int(arch.MaxTrampolineSize()), oldProtect)
+	_, err = changeMemoryProtectLevel(targetFuncAddr, int(arch.MaxTrampolineSize()), oldProtect)
 	if err != nil {
 		return nil, err
 	}
@@ -274,9 +303,20 @@ func NewHook(arch Arch, targetProc *syscall.Proc, hookFunc uintptr) (*Hook, erro
 		return nil, err
 	}
 	flushInstructionCache.Call(uintptr(currentProcessHandle), tramp.Addr, uintptr(arch.MaxTrampolineSize()))
-	flushInstructionCache.Call(uintptr(currentProcessHandle), originalFunc, uintptr(patchSize))
+	flushInstructionCache.Call(uintptr(currentProcessHandle), targetFuncAddr, uintptr(patchSize))
 
-	return &Hook{trampoline: tramp, originalFunc: tramp.Addr, hookFunc: hookFunc, patchSize: patchSize}, nil
+	originalProc := &syscall.Proc{Dll: targetProc.Dll, Name: targetProc.Name}
+	// HACK: overwrite Proc.addr with trampoline address
+	*(*uintptr)(unsafe.Pointer(reflect.Indirect(reflect.ValueOf(originalProc)).FieldByName("addr").UnsafeAddr())) = tramp.Addr
+
+	return &Hook{
+		Arch:         arch,
+		OriginalProc: originalProc,
+		HookFunc:     hookFunc,
+		targetProc:   targetProc,
+		trampoline:   tramp,
+		patchSize:    patchSize,
+	}, nil
 }
 
 func getAsmPatchSize(insts []x86asm.Inst, jumpSize uint) (int, error) {
