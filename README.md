@@ -2,7 +2,12 @@ hinako
 ==========
 ![](http://blog.otaku-streamers.com/wp-content/uploads/2016/11/b551fd2c1d9f9e87861ca65d_1480138863.png)
 
-Windows API hooking with golang based on [trampoline function](http://jbremer.org/x86-api-hooking-demystified/#ah-trampoline).
+Windows API hooking (x86) with golang based on [trampoline function](http://jbremer.org/x86-api-hooking-demystified/#ah-trampoline).
+
+## Requirements
+
+- Windows OS
+- Golang i386 (**not amd64**)
 
 ## Getting Started
 Hook [MessageBoxW](https://msdn.microsoft.com/en-us/library/windows/desktop/ms645505(v=vs.85).aspx) Sample
@@ -12,7 +17,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/castaneai/hinako/hinako"
+	"github.com/castaneai/hinako"
 	"syscall"
 	"unsafe"
 )
