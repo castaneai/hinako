@@ -6,10 +6,11 @@ import (
 )
 
 const (
-	_ASM_OP_NEAR_JMP         = 0xE9   // jmp rel32
-	_ASM_OP_FAR_JMP          = 0x25FF // jmp dword ptr[addr32]
-	_ASM_OP_AMD64_MOVABS_RAX = 0xB848 // mobabs rax, ...
-	_ASM_OP_AMD64_JMP_RAX    = 0xE0FF // jmp rax
+	_ASM_OP_NEAR_JMP = 0xE9       // jmp rel32
+	_ASM_OP_FAR_JMP  = 0x25FF     // jmp dword ptr[addr32]
+	_ASM_OP_PUSH     = 0x68       // push
+	_ASM_OP_MOV_RSP4 = 0x042444C7 // mov DWORD PTR [rsp+0x4], ...
+	_ASM_OP_RET      = 0xC3       // ret
 )
 
 type arch interface {
@@ -21,7 +22,6 @@ type arch interface {
 }
 
 func maxTrampolineSize(arch arch) uint {
-	// TODO: why??
 	return 40
 }
 
