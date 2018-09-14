@@ -24,6 +24,19 @@ const (
 	_MEM_RELEASE = 0x8000
 )
 
+func unlockMemoryProtect(addr uintptr, size int, fun func() error) error {
+	oldProtect, err := changeMemoryProtectLevel(addr, size, syscall.PAGE_EXECUTE_READWRITE)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if _, err := changeMemoryProtectLevel(addr, size, oldProtect); err != nil {
+			panic(err)
+		}
+	}()
+	return fun()
+}
+
 func changeMemoryProtectLevel(ptr uintptr, size, protectLevel int) (int, error) {
 	oldProtectLevel := 0
 	if r, _, err := virtualProtect.Call(ptr, uintptr(size), uintptr(protectLevel), uintptr(unsafe.Pointer(&oldProtectLevel))); r == 0 {
@@ -71,21 +84,14 @@ func (h *Hook) Close() {
 		panic(err)
 	}
 
-	oldProtect, err := changeMemoryProtectLevel(h.targetProc.Addr(), len(patch), syscall.PAGE_EXECUTE_READWRITE)
-	if err != nil {
-		panic(err)
-	}
-
-	if err := unsafeWriteMemory(h.targetProc.Addr(), patch); err != nil {
-		panic(err)
-	}
-
-	if _, err = changeMemoryProtectLevel(h.targetProc.Addr(), len(patch), oldProtect); err != nil {
+	if err := unlockMemoryProtect(h.targetProc.Addr(), len(patch), func() error {
+		return unsafeWriteMemory(h.targetProc.Addr(), patch)
+	}); err != nil {
 		panic(err)
 	}
 }
 
-func NewHookByName(dllName, funcName string, hookFunc interface{}) (*Hook, error) {
+func NewHookByName(arch arch, dllName, funcName string, hookFunc interface{}) (*Hook, error) {
 	dll, err := syscall.LoadDLL(dllName)
 	if err != nil {
 		return nil, err
@@ -95,19 +101,14 @@ func NewHookByName(dllName, funcName string, hookFunc interface{}) (*Hook, error
 		return nil, err
 	}
 
-	hook, err := NewHook(targetProc, hookFunc)
+	hook, err := NewHook(arch, targetProc, hookFunc)
 	if err != nil {
 		return nil, err
 	}
 	return hook, nil
 }
 
-func NewHook(targetProc *syscall.Proc, hookFunc interface{}) (*Hook, error) {
-	arch, err := newRuntimeArch()
-	if err != nil {
-		return nil, err
-	}
-
+func NewHook(arch arch, targetProc *syscall.Proc, hookFunc interface{}) (*Hook, error) {
 	// todo: already hooked?
 	targetFuncAddr := targetProc.Addr()
 	hookFuncCallbackAddr := syscall.NewCallback(hookFunc)
@@ -129,6 +130,11 @@ func NewHook(targetProc *syscall.Proc, hookFunc interface{}) (*Hook, error) {
 	}
 	printDisas(arch, targetFuncAddr, 20, "original func head")
 
+	currentProcessHandle, err := syscall.GetCurrentProcess()
+	if err != nil {
+		return nil, err
+	}
+
 	// allocate trampoline buffer
 	tramp, err := newVirtualAllocatedMemory(maxTrampolineSize(arch), syscall.PAGE_EXECUTE_READWRITE)
 	if err != nil {
@@ -141,39 +147,28 @@ func NewHook(targetProc *syscall.Proc, hookFunc interface{}) (*Hook, error) {
 	}
 	printDisas(arch, tramp.Addr, int(tramp.Size), "tramp func")
 
-	// add jump opcode to tail of trampoline
+	// add jump to original function tail opcode to trampoline
 	jmp := newJumpAsm(arch, tramp.Addr+uintptr(patchSize), targetFuncAddr+uintptr(patchSize))
-
 	if _, err = tramp.WriteAt(jmp, int64(patchSize)); err != nil {
+		return nil, err
+	}
+	if r, _, err := flushInstructionCache.Call(uintptr(currentProcessHandle), tramp.Addr, uintptr(tramp.Size)); r == 0 {
 		return nil, err
 	}
 	printDisas(arch, tramp.Addr, int(tramp.Size), "tramp func")
 
-	oldProtect, err := changeMemoryProtectLevel(targetFuncAddr, int(maxTrampolineSize(arch)), syscall.PAGE_EXECUTE_READWRITE)
-	if err != nil {
-		return nil, err
-	}
-
-	// overwrite head of target func with jumping for hook func
-	hookJmp := newJumpAsm(arch, targetFuncAddr, hookFuncCallbackAddr)
-	if err := unsafeWriteMemory(targetFuncAddr, hookJmp); err != nil {
-		return nil, err
-	}
-	printDisas(arch, targetFuncAddr, 20, "original func head (after patched)")
-
-	if _, err := changeMemoryProtectLevel(targetFuncAddr, int(maxTrampolineSize(arch)), oldProtect); err != nil {
-		return nil, err
-	}
-
-	// clear inst cache
-	currentProcessHandle, err := syscall.GetCurrentProcess()
-	if err != nil {
-		return nil, err
-	}
-	if r, _, err := flushInstructionCache.Call(uintptr(currentProcessHandle), tramp.Addr, uintptr(maxTrampolineSize(arch))); r == 0 {
-		return nil, err
-	}
-	if r, _, err := flushInstructionCache.Call(uintptr(currentProcessHandle), targetFuncAddr, uintptr(patchSize)); r == 0 {
+	if err := unlockMemoryProtect(targetFuncAddr, patchSize, func() error {
+		// overwrite head of target func with jumping for hook func
+		hookJmp := newJumpAsm(arch, targetFuncAddr, hookFuncCallbackAddr)
+		if err := unsafeWriteMemory(targetFuncAddr, hookJmp); err != nil {
+			return err
+		}
+		if r, _, err := flushInstructionCache.Call(uintptr(currentProcessHandle), targetFuncAddr, uintptr(patchSize)); r == 0 {
+			return err
+		}
+		printDisas(arch, targetFuncAddr, 20, "original func head (after patched)")
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 
@@ -207,7 +202,7 @@ func getAsmPatchSize(insts []*x86asm.Inst, jumpSize uint) (int, error) {
 
 func isBranchInst(inst *x86asm.Inst) bool {
 	instr := inst.String()
-	return strings.HasPrefix(instr, "J") || strings.HasPrefix(instr, "CALL")
+	return strings.HasPrefix(instr, "J") || strings.HasPrefix(instr, "CALL") || strings.HasPrefix(instr, "RET")
 }
 
 func disassemble(src []byte, mode int) ([]*x86asm.Inst, error) {

@@ -1,10 +1,5 @@
 package hinako
 
-import (
-	"unsafe"
-	"syscall"
-)
-
 type virtualAllocatedMemory struct {
 	Addr       uintptr
 	Size       uint
@@ -43,28 +38,8 @@ func (vmem *virtualAllocatedMemory) WriteAt(p []byte, off int64) (int, error) {
 	return len(p), nil
 }
 
-func (vmem *virtualAllocatedMemory) Close() error {
-	r, _, err := virtualFree.Call(vmem.Addr, 0, _MEM_RELEASE)
-	if r == 0 {
-		return err
+func (vmem *virtualAllocatedMemory) Close() {
+	if r, _, err := virtualFree.Call(vmem.Addr, 0, _MEM_RELEASE); r == 0 {
+		panic(err)
 	}
-	return nil
-}
-
-func (vmem *virtualAllocatedMemory) RestoreOriginalProtect() error {
-	dummy := uintptr(0)
-	r, _, err := virtualProtect.Call(vmem.Addr, uintptr(vmem.Size), vmem.oldProtect, uintptr(unsafe.Pointer(&dummy)))
-	if r == 0 || err != nil {
-		return err
-	}
-	return nil
-}
-
-func (vmem *virtualAllocatedMemory) SetProtectToExecutable() error {
-	vmem.oldProtect = uintptr(0)
-	r, _, err := virtualProtect.Call(vmem.Addr, uintptr(vmem.Size), syscall.PAGE_EXECUTE_READWRITE, uintptr(unsafe.Pointer(&(vmem.oldProtect))))
-	if r == 0 {
-		return err
-	}
-	return nil
 }
