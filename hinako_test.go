@@ -1,7 +1,6 @@
 package hinako
 
 import (
-	"fmt"
 	"reflect"
 	"syscall"
 	"testing"
@@ -9,7 +8,7 @@ import (
 )
 
 func TestIA32Arch_NewNearJumpAsm(t *testing.T) {
-	ia32 := IA32Arch{}
+	ia32 := arch386{}
 	asm := ia32.NewNearJumpAsm(uintptr(100), uintptr(150))
 	expect := []byte{0xE9, 45, 0, 0, 0}
 	if !reflect.DeepEqual(asm, expect) {
@@ -18,7 +17,7 @@ func TestIA32Arch_NewNearJumpAsm(t *testing.T) {
 }
 
 func TestIA32Arch_NewFarJumpAsm(t *testing.T) {
-	ia32 := IA32Arch{}
+	ia32 := arch386{}
 	asm := ia32.NewFarJumpAsm(uintptr(0), uintptr(0x12345678))
 	expect := []byte{0xFF, 0x25, 0x06, 0, 0, 0, 0x78, 0x56, 0x34, 0x12}
 	if !reflect.DeepEqual(asm, expect) {
@@ -27,7 +26,7 @@ func TestIA32Arch_NewFarJumpAsm(t *testing.T) {
 }
 
 func TestNewVirtualAllocatedMemory(t *testing.T) {
-	vmem, err := NewVirtualAllocatedMemory(64, syscall.PAGE_EXECUTE_READWRITE)
+	vmem, err := newVirtualAllocatedMemory(64, syscall.PAGE_EXECUTE_READWRITE)
 	if err != nil {
 		t.Errorf(err.Error())
 	}
@@ -35,10 +34,11 @@ func TestNewVirtualAllocatedMemory(t *testing.T) {
 }
 
 func TestVirtualAllocatedMemory_ReadWrite(t *testing.T) {
-	vmem, err := NewVirtualAllocatedMemory(64, syscall.PAGE_EXECUTE_READWRITE)
+	vmem, err := newVirtualAllocatedMemory(64, syscall.PAGE_EXECUTE_READWRITE)
 	if err != nil {
 		t.Errorf(err.Error())
 	}
+	defer vmem.Close()
 	w := []byte("Hello, hinako")
 	vmem.Write(w)
 
@@ -47,25 +47,26 @@ func TestVirtualAllocatedMemory_ReadWrite(t *testing.T) {
 	if !reflect.DeepEqual(r, w) {
 		t.Errorf("%v != %v", r, w)
 	}
-	defer vmem.Close()
 }
 
 func TestNewHookByName(t *testing.T) {
 	target := syscall.NewLazyDLL("user32.dll").NewProc("MessageBoxW")
+	arch := &archAMD64{}
 
 	// Before hook
 	// Call MessageBoxW
+	printDisas(arch, target.Addr(), int(maxTrampolineSize(arch)), "original messageboxw")
 	target.Call(0, WSTRPtr("MessageBoxW"), WSTRPtr("MessageBoxW"), 0)
 
 	// API Hooking by hinako
-	arch := IA32Arch{}
 	var originalMessageBoxW *syscall.Proc = nil
-	hook, err := NewHookByName(&arch, "user32.dll", "MessageBoxW", func(hWnd syscall.Handle, lpText, lpCaption *uint16, uType uint) int {
+	hook, err := NewHookByName("user32.dll", "MessageBoxW", func(hWnd syscall.Handle, lpText, lpCaption *uint16, uType uint) int {
+		printDisas(arch, originalMessageBoxW.Addr(), int(maxTrampolineSize(arch)), "original messageboxw (tramp)")
 		r, _, _ := originalMessageBoxW.Call(uintptr(hWnd), WSTRPtr("Hooked!"), WSTRPtr("Hooked!"), uintptr(uType))
 		return int(r)
 	})
 	if err != nil {
-		fmt.Printf("hook failed: %s", err.Error())
+		t.Fatalf("hook failed: %s", err.Error())
 	}
 	originalMessageBoxW = hook.OriginalProc
 	defer hook.Close()
