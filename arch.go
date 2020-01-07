@@ -47,7 +47,8 @@ func newJumpAsm(arch arch, from, to uintptr) []byte {
 	return arch.NewNearJumpAsm(from, to)
 }
 
-func newRuntimeArch() (arch, error) {
+//NewRuntimeArch func
+func NewRuntimeArch() (arch, error) {
 	switch runtime.GOARCH {
 	case "386":
 		return &arch386{}, nil
