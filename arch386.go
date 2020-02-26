@@ -5,28 +5,28 @@ import (
 	"unsafe"
 )
 
-type arch386 struct{}
+type Arch386 struct{}
 
-func (a *arch386) DisassembleMode() int {
+func (a *Arch386) DisassembleMode() int {
 	return 32
 }
 
-func (a *arch386) NearJumpSize() uint {
+func (a *Arch386) NearJumpSize() uint {
 	return uint(1 + unsafe.Sizeof(uint32(0)))
 }
 
-func (a *arch386) FarJumpSize() uint {
+func (a *Arch386) FarJumpSize() uint {
 	return uint(2 + unsafe.Sizeof(uint32(0))*2)
 }
 
-func (a *arch386) NewNearJumpAsm(from, to uintptr) []byte {
+func (a *Arch386) NewNearJumpAsm(from, to uintptr) []byte {
 	asm := make([]byte, a.NearJumpSize())
 	asm[0] = _ASM_OP_NEAR_JMP
 	*(*int32)(unsafe.Pointer(&asm[1])) = int32(to) - int32(from) - int32(a.NearJumpSize())
 	return asm
 }
 
-func (a *arch386) NewFarJumpAsm(from, to uintptr) []byte {
+func (a *Arch386) NewFarJumpAsm(from, to uintptr) []byte {
 	asm := make([]byte, a.FarJumpSize())
 	binary.LittleEndian.PutUint16(asm, _ASM_OP_FAR_JMP)
 	binary.LittleEndian.PutUint32(asm[2:], uint32(from+6))

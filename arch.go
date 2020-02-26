@@ -13,7 +13,7 @@ const (
 	_ASM_OP_RET      = 0xC3       // ret
 )
 
-type arch interface {
+type Arch interface {
 	DisassembleMode() int
 	NearJumpSize() uint
 	FarJumpSize() uint
@@ -21,7 +21,7 @@ type arch interface {
 	NewFarJumpAsm(from, to uintptr) []byte
 }
 
-func maxTrampolineSize(arch arch) uint {
+func maxTrampolineSize(arch Arch) uint {
 	return 40
 }
 
@@ -33,14 +33,14 @@ func isFarJump(from, to uintptr) bool {
 	}
 }
 
-func jumpSize(arch arch, from, to uintptr) uint {
+func jumpSize(arch Arch, from, to uintptr) uint {
 	if isFarJump(from, to) {
 		return arch.FarJumpSize()
 	}
 	return arch.NearJumpSize()
 }
 
-func newJumpAsm(arch arch, from, to uintptr) []byte {
+func newJumpAsm(arch Arch, from, to uintptr) []byte {
 	if isFarJump(from, to) {
 		return arch.NewFarJumpAsm(from, to)
 	}
@@ -48,12 +48,12 @@ func newJumpAsm(arch arch, from, to uintptr) []byte {
 }
 
 //NewRuntimeArch func
-func NewRuntimeArch() (arch, error) {
+func NewRuntimeArch() (Arch, error) {
 	switch runtime.GOARCH {
 	case "386":
-		return &arch386{}, nil
+		return &Arch386{}, nil
 	case "amd64":
-		return &archAMD64{}, nil
+		return &ArchAMD64{}, nil
 	}
-	return nil, fmt.Errorf("unsupported arch: %s", runtime.GOARCH)
+	return nil, fmt.Errorf("unsupported Arch: %s", runtime.GOARCH)
 }

@@ -5,28 +5,28 @@ import (
 	"unsafe"
 )
 
-type archAMD64 struct{}
+type ArchAMD64 struct{}
 
-func (a *archAMD64) DisassembleMode() int {
+func (a *ArchAMD64) DisassembleMode() int {
 	return 64
 }
 
-func (a *archAMD64) NearJumpSize() uint {
+func (a *ArchAMD64) NearJumpSize() uint {
 	return uint(1 + unsafe.Sizeof(uint32(0)))
 }
 
-func (a *archAMD64) FarJumpSize() uint {
+func (a *ArchAMD64) FarJumpSize() uint {
 	return 14
 }
 
-func (a *archAMD64) NewNearJumpAsm(from, to uintptr) []byte {
+func (a *ArchAMD64) NewNearJumpAsm(from, to uintptr) []byte {
 	asm := make([]byte, a.NearJumpSize())
 	asm[0] = _ASM_OP_NEAR_JMP
 	*(*int32)(unsafe.Pointer(&asm[1])) = int32(to) - int32(from) - int32(a.NearJumpSize())
 	return asm
 }
 
-func (a *archAMD64) NewFarJumpAsm(from, to uintptr) []byte {
+func (a *ArchAMD64) NewFarJumpAsm(from, to uintptr) []byte {
 	asm := make([]byte, a.FarJumpSize())
 
 	// 3) This one was found on Nikolay Igotti’s blog.

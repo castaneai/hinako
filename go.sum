@@ -1,0 +1,3 @@
+golang.org/x/arch v0.0.0-20191126211547-368ea8f32fff h1:k/MrR0lKiCokRu1JUDDAWhWZinfBAOZRzz3LkPOkFMs=
+golang.org/x/arch v0.0.0-20191126211547-368ea8f32fff/go.mod h1:flIaEI6LNU6xOCD5PaJvn9wGP0agmIOqjrtsKGRguv4=
+rsc.io/pdf v0.1.1/go.mod h1:n8OzWcQ6Sp37PL01nO98y4iUCRdTGarVfzxY20ICaU4=

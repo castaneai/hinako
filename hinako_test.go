@@ -11,7 +11,7 @@ func TestHookArch386(t *testing.T) {
 	if runtime.GOARCH != "386" {
 		t.Skip()
 	}
-	if err := testHook(&arch386{}); err != nil {
+	if err := testHook(&Arch386{}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -20,12 +20,12 @@ func TestHookArchAMD64(t *testing.T) {
 	if runtime.GOARCH != "amd64" {
 		t.Skip()
 	}
-	if err := testHook(&archAMD64{}); err != nil {
+	if err := testHook(&ArchAMD64{}); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func testHook(arch arch) error {
+func testHook(arch Arch) error {
 	// Before hook
 	// Call MessageBoxW
 	target := syscall.NewLazyDLL("user32.dll").NewProc("MessageBoxW")

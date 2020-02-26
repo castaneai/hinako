@@ -6,13 +6,13 @@ import (
 	"golang.org/x/arch/x86/x86asm"
 )
 
-func printDisas(arch arch, ptr uintptr, size int, title string) {
+func printDisas(arch Arch, ptr uintptr, size int, title string) {
 	code := make([]byte, size)
 	unsafeReadMemory(ptr, code)
 	printCodes(arch, code, fmt.Sprintf("[0x%X] %s", ptr, title), ptr)
 }
 
-func printCodes(arch arch, code []byte, title string, baseAddr uintptr) {
+func printCodes(arch Arch, code []byte, title string, baseAddr uintptr) {
 	insts, _ := disassemble(code, arch.DisassembleMode())
 	printInsts(insts, title, baseAddr)
 }

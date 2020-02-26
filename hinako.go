@@ -62,7 +62,7 @@ func unsafeWriteMemory(ptr uintptr, in []byte) error {
 }
 
 type Hook struct {
-	Arch         arch
+	Arch         Arch
 	OriginalProc *syscall.Proc
 	HookFunc     interface{}
 
@@ -91,7 +91,7 @@ func (h *Hook) Close() {
 	}
 }
 
-func NewHookByName(arch arch, dllName, funcName string, hookFunc interface{}) (*Hook, error) {
+func NewHookByName(arch Arch, dllName, funcName string, hookFunc interface{}) (*Hook, error) {
 	dll, err := syscall.LoadDLL(dllName)
 	if err != nil {
 		return nil, err
@@ -108,7 +108,7 @@ func NewHookByName(arch arch, dllName, funcName string, hookFunc interface{}) (*
 	return hook, nil
 }
 
-func NewHook(arch arch, targetProc *syscall.Proc, hookFunc interface{}) (*Hook, error) {
+func NewHook(arch Arch, targetProc *syscall.Proc, hookFunc interface{}) (*Hook, error) {
 	// todo: already hooked?
 	targetFuncAddr := targetProc.Addr()
 	hookFuncCallbackAddr := syscall.NewCallback(hookFunc)
@@ -128,7 +128,7 @@ func NewHook(arch arch, targetProc *syscall.Proc, hookFunc interface{}) (*Hook, 
 	if err != nil {
 		return nil, err
 	}
-	printDisas(arch, targetFuncAddr, 20, "original func head")
+	// printDisas(arch, targetFuncAddr, 20, "original func head")
 
 	currentProcessHandle, err := syscall.GetCurrentProcess()
 	if err != nil {
@@ -145,7 +145,7 @@ func NewHook(arch arch, targetProc *syscall.Proc, hookFunc interface{}) (*Hook, 
 	if _, err := tramp.Write(originalFuncHead[:patchSize]); err != nil {
 		return nil, err
 	}
-	printDisas(arch, tramp.Addr, int(tramp.Size), "tramp func")
+	// printDisas(arch, tramp.Addr, int(tramp.Size), "tramp func")
 
 	// add jump to original function tail opcode to trampoline
 	jmp := newJumpAsm(arch, tramp.Addr+uintptr(patchSize), targetFuncAddr+uintptr(patchSize))
@@ -155,7 +155,7 @@ func NewHook(arch arch, targetProc *syscall.Proc, hookFunc interface{}) (*Hook, 
 	if r, _, err := flushInstructionCache.Call(uintptr(currentProcessHandle), tramp.Addr, uintptr(tramp.Size)); r == 0 {
 		return nil, err
 	}
-	printDisas(arch, tramp.Addr, int(tramp.Size), "tramp func")
+	// printDisas(arch, tramp.Addr, int(tramp.Size), "tramp func")
 
 	if err := unlockMemoryProtect(targetFuncAddr, patchSize, func() error {
 		// overwrite head of target func with jumping for hook func
@@ -166,7 +166,7 @@ func NewHook(arch arch, targetProc *syscall.Proc, hookFunc interface{}) (*Hook, 
 		if r, _, err := flushInstructionCache.Call(uintptr(currentProcessHandle), targetFuncAddr, uintptr(patchSize)); r == 0 {
 			return err
 		}
-		printDisas(arch, targetFuncAddr, 20, "original func head (after patched)")
+		// printDisas(arch, targetFuncAddr, 20, "original func head (after patched)")
 		return nil
 	}); err != nil {
 		return nil, err
